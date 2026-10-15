@@ -56,6 +56,22 @@ n_years = len(yearly)
 start_year = int(x.min())
 end_year = int(x.max())
 
+# 최근 20년만으로 구한 회귀 (끝 연도 포함 20년 창)
+RECENT_YEARS = 20
+recent = yearly[yearly["연도"] > end_year - RECENT_YEARS]
+recent_n = len(recent)
+recent_start = int(recent["연도"].min())
+recent_end = int(recent["연도"].max())
+if recent_n >= 3:
+    rx = recent["연도"].to_numpy(dtype=float)
+    ry = recent["연평균기온"].to_numpy(dtype=float)
+    recent_slope, recent_intercept = np.polyfit(rx, ry, 1)
+    recent_r = float(np.corrcoef(rx, ry)[0, 1])
+else:
+    recent_slope = recent_intercept = recent_r = None
+
+slope_100 = slope * 100  # 전체 기간: 100년당 기온 변화
+
 # ---- 슬라이더와 예상 기온 ----
 year = st.slider("예상할 연도를 고르세요", min_value=1900, max_value=2100, value=2030, step=1)
 pred = slope * year + intercept
@@ -83,6 +99,67 @@ st.write(
     f"회귀 직선: 기온 = {slope:.4f} × 연도 + {intercept:.2f}"
 )
 
+# ---- 기울기: 100년에 몇 도 오르는가 ----
+st.divider()
+st.markdown(
+    f"""
+    <div style="text-align:center; padding:0.6rem 0 1rem 0;">
+        <div style="font-size:1.1rem; opacity:0.7;">전체 기간({start_year}~{end_year}년) 추세</div>
+        <div style="font-size:3.5rem; font-weight:800; line-height:1.2;">
+            100년에 {slope_100:+.2f} ℃
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def slope_card(title, period, count, value_100, corr, color):
+    return f"""
+    <div style="border:2px solid {color}; border-radius:12px; padding:1rem; text-align:center;">
+        <div style="font-size:1.05rem; font-weight:700;">{title}</div>
+        <div style="font-size:0.9rem; opacity:0.7;">{period} · {count}개 해</div>
+        <div style="font-size:2.4rem; font-weight:800; line-height:1.3;">{value_100:+.2f} ℃</div>
+        <div style="font-size:0.9rem; opacity:0.7;">100년당 · 상관계수 r = {corr:.3f}</div>
+    </div>
+    """
+
+
+st.subheader("기울기 비교: 전체 기간 vs 최근 20년")
+col_all, col_recent = st.columns(2)
+with col_all:
+    st.markdown(
+        slope_card("전체 기간", f"{start_year}~{end_year}년", n_years, slope_100, r, "#1f77b4"),
+        unsafe_allow_html=True,
+    )
+with col_recent:
+    if recent_slope is None:
+        st.warning("최근 20년 구간에 데이터가 부족해요.")
+    else:
+        st.markdown(
+            slope_card(
+                "최근 20년",
+                f"{recent_start}~{recent_end}년",
+                recent_n,
+                recent_slope * 100,
+                recent_r,
+                "crimson",
+            ),
+            unsafe_allow_html=True,
+        )
+
+if recent_slope is not None:
+    diff = (recent_slope - slope) * 100
+    if slope > 0 and recent_slope > 0:
+        ratio_text = f"전체 기간의 약 {recent_slope / slope:.1f}배예요. "
+    else:
+        ratio_text = ""
+    st.write(
+        f"최근 {RECENT_YEARS}년의 기울기는 100년당 {recent_slope * 100:+.2f} ℃로, "
+        f"전체 기간보다 {diff:+.2f} ℃ 차이가 나요. {ratio_text}"
+        "짧은 구간은 해마다의 들쭉날쭉함에 크게 흔들리니 참고용으로 보세요."
+    )
+
 # ---- 산점도 + 회귀 직선 ----
 line_x0 = min(start_year, year)
 line_x1 = max(end_year, year)
@@ -108,6 +185,17 @@ fig.add_trace(
         line=dict(width=3, color="crimson"),
     )
 )
+if recent_slope is not None:
+    recent_line_x = np.array([recent_start, recent_end], dtype=float)
+    fig.add_trace(
+        go.Scatter(
+            x=recent_line_x,
+            y=recent_slope * recent_line_x + recent_intercept,
+            mode="lines",
+            name="최근 20년 직선",
+            line=dict(width=3, color="royalblue", dash="dash"),
+        )
+    )
 fig.add_trace(
     go.Scatter(
         x=[year],
